@@ -1,0 +1,97 @@
+#!/usr/bin/python3
+from configparser import ConfigParser
+import requests
+import json
+import argparse
+import sys, os
+
+# Loads the INI file you store your credentials in.
+class Config:
+    def __init__(self, config_path):
+        self.config = ConfigParser()
+        self.config.read(config_path)
+        self.api_key = self.config['godaddy-api-credentials']['key']
+        self.api_secret = self.config['godaddy-api-credentials']['secret']
+
+
+class ResponseObj:
+    def __init__(self, status, headers, message):
+        self.status = status
+        self.message = message
+        self.headers = headers
+        if self.status == 200:
+            self.success = True
+        else:
+            self.success = False
+
+    def __repr__(self):
+        return "ResponseException()"
+
+    def __str__(self):
+        return "(EE) Unsuccessful. HTTP {0} response when calling GoDaddy API:\"{1}\"".format( self.status, self.message)
+
+
+class DNS:
+    def __init__(self, config):
+        self.credentials = config
+
+    def add_record(self, domain, record_type, name, value):
+        headers = {
+            "accept": "application/json",
+            "Content-Type": "application/json",
+            "Authorization": "sso-key {0}:{1}".format(self.credentials.api_key, self.credentials.api_secret)
+        }
+
+        result = requests.patch(
+
+            url="https://api.godaddy.com/v1/domains/{0}/records".format(domain),
+            data=json.dumps(
+                [
+                    {
+                        'data': value,
+                        'name': name,
+                        'port': 443,
+                        'priority': 0,
+                        'protocol': "string",
+                        'service': "string",
+                        'ttl': 600,
+                        "type": record_type,
+                        "weight": 0
+                    }
+                ]
+            ),
+            headers=headers
+        )
+
+        response = ResponseObj(result.status_code, result.headers, result.text)
+
+        return response
+
+
+def Main():
+    home_dir = os.environ['HOME']
+
+    config = Config( "{0}/.config/godaddy-api.ini".format( home_dir ) )
+    controller = DNS(config)
+
+    parser = argparse.ArgumentParser(description='Create DNS Records on GoDaddy.', prog='godaddy_dns-add')
+    required_arguments = parser.add_argument_group('required arguments')
+
+    required_arguments.add_argument('--domain', help='the domain managed by GoDaddy that the records will belong to', required=True)
+    required_arguments.add_argument('--type', help='the DNS record type (A, CNAME, TXT, MX et al) to be added', required=True)
+    required_arguments.add_argument('--name', help='the name of the record', required=True)
+    required_arguments.add_argument('--value', help='the value of the record', required=True)
+    args = parser.parse_args()
+
+    actionresponse = controller.add_record(args.domain, args.type, args.name, args.value)
+
+    if actionresponse.success:
+        print("Record added.")
+        sys.exit(0)
+    else:
+        print(actionresponse)
+        sys.exit(1)
+
+
+if __name__ == '__main__':
+    Main()
